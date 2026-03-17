@@ -1,0 +1,155 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 数据库
+  postgres:
+    image: postgres:15-alpine
+    container_name: geo-postgres
+    environment:
+      POSTGRES_USER: geo_user
+      POSTGRES_PASSWORD: geo_password
+      POSTGRES_DB: geo_platform
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - geo-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geo_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis 缓存和任务队列
+  redis:
+    image: redis:7-alpine
+    container_name: geo-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - geo-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 后端API服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: geo-backend
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://geo_user:geo_password@postgres:5432/geo_platform
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your-secret-key-change-in-production
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - geo-network
+    command: npm run dev
+
+  # 前端管理界面
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: geo-frontend
+    environment:
+      VITE_API_URL: http://localhost:3001
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - geo-network
+    command: npm run dev
+
+  # 内容扫描器
+  scanner:
+    build:
+      context: ./scanner
+      dockerfile: Dockerfile
+    container_name: geo-scanner
+    environment:
+      DATABASE_URL: postgresql://geo_user:geo_password@postgres:5432/geo_platform
+      REDIS_URL: redis://redis:6379
+      API_BASE_URL: http://backend:3001
+    depends_on:
+      - postgres
+      - redis
+      - backend
+    volumes:
+      - ./scanner:/app
+    networks:
+      - geo-network
+    command: python main.py
+
+  # AI改写服务
+  ai-service:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: geo-ai-service
+    environment:
+      DATABASE_URL: postgresql://geo_user:geo_password@postgres:5432/geo_platform
+      REDIS_URL: redis://redis:6379
+      API_BASE_URL: http://backend:3001
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+      - redis
+      - backend
+    volumes:
+      - ./ai-service:/app
+    networks:
+      - geo-network
+    ports:
+      - "8000:8000"
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # 引用监控服务
+  monitor:
+    build:
+      context: ./monitor
+      dockerfile: Dockerfile
+    container_name: geo-monitor
+    environment:
+      DATABASE_URL: postgresql://geo_user:geo_password@postgres:5432/geo_platform
+      REDIS_URL: redis://redis:6379
+      API_BASE_URL: http://backend:3001
+    depends_on:
+      - postgres
+      - redis
+      - backend
+    volumes:
+      - ./monitor:/app
+    networks:
+      - geo-network
+    command: python main.py
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  geo-network:
+    driver: bridge

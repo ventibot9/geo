@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  ai-service:
+    build: .
+    container_name: geo-ai-service
+    ports:
+      - "8000:8000"
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/rewrites.db
+      # OpenAI 配置（可选）
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4-turbo-preview}
+      # Anthropic 配置
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-3-opus-20240229}
+      # Llama 配置（可选）
+      - LLAMA_API_BASE=${LLAMA_API_BASE:-http://host.docker.internal:11434/v1}
+      - LLAMA_MODEL=${LLAMA_MODEL:-llama2}
+      # 默认模型
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-anthropic}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    networks:
+      - geo-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  geo-network:
+    driver: bridge
+
+volumes:
+  data:

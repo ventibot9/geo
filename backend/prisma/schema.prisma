@@ -1,0 +1,172 @@
+// Prisma Schema for GEO Platform
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 企业模型（多租户）
+model Enterprise {
+  id          String   @id @default(uuid())
+  name        String
+  domain      String   @unique
+  plan        String   @default("free") // free, pro, enterprise
+  status      String   @default("active") // active, suspended, cancelled
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // 关系
+  users       User[]
+  siteConfigs SiteConfig[]
+  scanTasks   ScanTask[]
+  citationData CitationData[]
+
+  @@map("enterprises")
+}
+
+// 用户模型
+model User {
+  id           String      @id @default(uuid())
+  email        String      @unique
+  password     String
+  name         String
+  role         String      @default("user") // admin, user
+  status       String      @default("active") // active, inactive
+  lastLoginAt  DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  // 关系
+  enterpriseId String
+  enterprise   Enterprise  @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  @@unique([email, enterpriseId])
+  @@map("users")
+}
+
+// 网站配置
+model SiteConfig {
+  id              String      @id @default(uuid())
+  url             String
+  scanSchedule    String      @default("weekly") // daily, weekly, monthly
+  active          Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // 关系
+  enterpriseId    String
+  enterprise      Enterprise  @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  scanTasks       ScanTask[]
+
+  @@unique([enterpriseId, url])
+  @@map("site_configs")
+}
+
+// 扫描任务
+model ScanTask {
+  id              String         @id @default(uuid())
+  status          String         @default("pending") // pending, running, completed, failed
+  totalPages      Int            @default(0)
+  processedPages  Int            @default(0)
+  avgAiScore      Float?
+  maxAiScore      Float?
+  minAiScore      Float?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  errorMessage    String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  // 关系
+  enterpriseId    String
+  enterprise      Enterprise     @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+  siteConfigId    String
+  siteConfig      SiteConfig     @relation(fields: [siteConfigId], references: [id], onDelete: Cascade)
+  contentPages    ContentPage[]
+
+  @@map("scan_tasks")
+}
+
+// 内容页面
+model ContentPage {
+  id                String             @id @default(uuid())
+  url               String
+  title             String
+  content           String             @db.Text
+  wordCount         Int
+  structureScore    Float?
+  keywordScore      Float?
+  citationPotential Float?
+  aiScore           Float?
+  summary           String?            @db.Text
+  optimizationTips  Json?              // 优化建议（JSON格式）
+  lastScannedAt     DateTime           @default(now())
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  // 关系
+  scanTaskId        String
+  scanTask          ScanTask           @relation(fields: [scanTaskId], references: [id], onDelete: Cascade)
+  aiScores          AIReadabilityScore[]
+
+  @@unique([scanTaskId, url])
+  @@map("content_pages")
+}
+
+// AI友好度评分（历史记录）
+model AIReadabilityScore {
+  id              String      @id @default(uuid())
+  score           Float
+  factors         Json        // 评分因子（JSON格式）
+  model           String      // gpt-4, claude-3, etc.
+  version         String      @default("1.0")
+  scoredAt        DateTime    @default(now())
+
+  // 关系
+  contentPageId   String
+  contentPage     ContentPage @relation(fields: [contentPageId], references: [id], onDelete: Cascade)
+
+  @@map("ai_readability_scores")
+}
+
+// 引用数据
+model CitationData {
+  id              String      @id @default(uuid())
+  aiEngine        String      // chatgpt, claude, ernie, etc.
+  keyword         String
+  citationCount   Int         @default(0)
+  exposureCount   Int         @default(0)
+  position        Float?      // 平均排名位置
+  date            DateTime    @default(now())
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // 关系
+  enterpriseId    String
+  enterprise      Enterprise  @relation(fields: [enterpriseId], references: [id], onDelete: Cascade)
+
+  @@unique([enterpriseId, aiEngine, keyword, date])
+  @@index([enterpriseId, date])
+  @@map("citation_data")
+}
+
+// 任务队列Job记录（可选，用于追踪Bull任务）
+model JobRecord {
+  id              String      @id @default(uuid())
+  jobId           String      @unique
+  type            String      // scan, rewrite, monitor
+  status          String      // waiting, active, completed, failed
+  priority        Int         @default(0)
+  attempts        Int         @default(0)
+  data            Json?
+  result          Json?
+  error           String?
+  createdAt       DateTime    @default(now())
+  processedAt     DateTime?
+  completedAt     DateTime?
+
+  @@map("job_records")
+}
