@@ -1,5 +1,8 @@
 # GEO 平台架构设计
 
+## GitHub仓库
+https://github.com/ventibot9/geo.git
+
 ## 项目概述
 GEO（生成式引擎优化）SaaS平台 - 帮企业优化内容结构，提高AI引用率
 
